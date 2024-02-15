@@ -17,6 +17,10 @@ from cv_bridge import CvBridge
 from xarm_msgs.srv import GetTargetPoint
 
 class PointCloudSegmentedNode(Node):
+    '''
+    This node publishes a segmented pointcloud based on yolov8 detection. Most of the code is similar to point_cloud_only.py
+    If pointcloud lies inside a polygon of detection mask given by yolov8, publish that cloud with a randomly assigned colour. 
+    '''
     def __init__(self):
         super().__init__('ros2_point_cloud_segmented')
         self.get_logger().info("Please check Rviz2 for output /depth_points")
@@ -65,6 +69,7 @@ class PointCloudSegmentedNode(Node):
 
         for detection in mask_msg.detections:
             if (len(detection.mask.data) > 4):
+                # assign a random colour to an object
                 colour_code = random.randint(0, 0xFFFFFE)
 
                 mask_points = np.array([[int(ele.y), int(ele.x), 0] for ele in detection.mask.data])

@@ -5,6 +5,10 @@
 
 
 class CapturePointCloudNode : public rclcpp::Node {
+  '''
+  This node saves the pointcloud being published to /depth_points and save it to pcd formate in the current package directory
+  Modify the file name in the code. It should print hello twice when it is running.
+  '''
 public:
   CapturePointCloudNode() : Node("capture_pointcloud_node") {
     subscription_ = create_subscription<sensor_msgs::msg::PointCloud2>(

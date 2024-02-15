@@ -17,18 +17,23 @@ from cv_bridge import CvBridge
 from xarm_msgs.srv import GetTargetPoint
 
 class PointCloudDistanceNode(Node):
+    '''
+    This node publishes a segmented pointcloud similar to "point_cloud_rgb_segmented.py" but also publishes a target point for xarm to move towards.
+    I believe there is an error in centeroid calculation when there are two objects..
+    '''
     def __init__(self):
         super().__init__('ros2_point_cloud_distance')
-
+        
+        # this is for sending a target point to xarm
         self.srv = self.create_service(GetTargetPoint, 'get_target_point', self.getTargetPointCallback)
         
+        # target point is also being published, which can be visualised in rviz2
         self.pub_target_point = self.create_publisher(PointStamped, "/target_point", 10)
+        self.target_point = PointStamped()
 
         self.depth_cam_sub = message_filters.Subscriber(self, Image, "/depth/image_raw")
         self.cam_info_sub = message_filters.Subscriber(self, CameraInfo, "/depth/camera_info")
         self.mask_sub = message_filters.Subscriber(self, DetectionArray, "/detections_transformed")
-
-        self.target_point = PointStamped()
 
         self.point_pub = self.create_publisher(
             PointCloud2,
@@ -41,6 +46,7 @@ class PointCloudDistanceNode(Node):
 
         self.bridge = CvBridge()
 
+        # we are restructuring the pointcloud so it takes colour information as well, resolution is also adjusted using skip.
         self.field = PointField(name = 'x')
         self.skip = 8
         self.fields = [
@@ -51,6 +57,7 @@ class PointCloudDistanceNode(Node):
         ]
 
     def getTargetPointCallback(self, request, response):
+        # this gets printed when xarm package requests a target point. Prints what target point is being sent
         response.target_point = self.target_point
         print("target sending.. ")
         self.get_logger().info("Target at ({:.5f}, {:.5f}, {:.5f})".format(self.target_point.point.x, self.target_point.point.y, self.target_point.point.z))
@@ -63,9 +70,12 @@ class PointCloudDistanceNode(Node):
         self.target_point.point.y = 0.0
         self.target_point.point.z = 0.0
 
-        
+        # what we want to detect + track
         detection_id = ["cat", "bird", "dog", "cell phone"]
+
+        # what we want to pause tracking when detected
         detection_hand = ["hand", "human", "person"]
+
         height = image_msg.height
         width = image_msg.width
 
@@ -79,8 +89,10 @@ class PointCloudDistanceNode(Node):
 
         point_cloud_segmented = []
 
+        # flag to determine whether object from detection_id has been found
         object_found = False
 
+        # quick iteraction through a list of detections per frame to see anything needs publishing or pause tracking
         for detection in mask_msg.detections:
             if (detection.class_name in detection_hand):
                 target_msg = PointStamped()
@@ -97,6 +109,7 @@ class PointCloudDistanceNode(Node):
             if (detection.class_name in detection_id):
                 object_found = True
         
+        # detected nothing, target point is 0.0 0.0 0.0. xarm interprets 0.0 0.0 0.0 as a special target point + getting ready to reset to a default position
         if (not object_found):
             print("detected nothing..")
             target_msg = PointStamped()
@@ -111,12 +124,15 @@ class PointCloudDistanceNode(Node):
             self.pub_target_point.publish(target_msg)
             return
 
+        # appending pointcloud
         for x in range(0, height, self.skip):
             for y in range(0, width, self.skip):
                 depth = data_depth[x][y]
                 point_cloud.append(self.depthToPointCloudPos(info_msg, x, y, depth, 0xFFFFFF))
                 point_cloud_2d.append([x,y])
-
+        
+        # sometimes the end effector is recognised as scissors.
+        # green colour for detection item and red for hand. Then publish them
         for detection in mask_msg.detections:
             if (len(detection.mask.data) > 4 and detection.class_name != "scissors"):
                 if (detection.class_name in detection_hand):
@@ -148,10 +164,11 @@ class PointCloudDistanceNode(Node):
                         point3d[3] =  colour_code
                         point_cloud_segmented.append(point3d)
 
-
+                # centeroid calculate as a target. I think there is an error when detecting multiple items. 
                 if ((detection.class_name in detection_id) and (total_mask_num > 50)):
                     average_x = sum_x/total_mask_num
                     average_y = sum_y/total_mask_num
+                    # find the closest pointcloud datapoint to mark as a centeroid. 
                     values, row_index = self.find_closest_values_2d(average_x, average_y, point_cloud_array[:,:2])
 
                     target_msg = PointStamped()
@@ -165,9 +182,6 @@ class PointCloudDistanceNode(Node):
                     # self.get_logger().info("Detetion at ({:.5f}, {:.5f}, {:.5f})".format(target_msg.point.x, target_msg.point.y, target_msg.point.z))
                     self.pub_target_point.publish(target_msg)
           
-
-        # self.publishCloud(full_mask_points, image_msg, self.mask_pub)
-        # self.publishCloud(point_cloud, image_msg, self.point_pub)
         self.publishCloud(point_cloud_segmented, image_msg, self.point_pub)
 
 
@@ -191,7 +205,6 @@ class PointCloudDistanceNode(Node):
     
     def is_inside_poly(self, points, polygon):
         return np.array([polygon.contains(Point(p)) for p in points])
-
 
     def depthToPointCloudPos(self, info_msg, x, y, d, coloured):
     

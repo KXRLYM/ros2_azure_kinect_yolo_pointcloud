@@ -12,12 +12,14 @@ from std_msgs.msg import Header
 from cv_bridge import CvBridge
 
 class PointCloudOnlyNode(Node):
+    '''
+    This node publishes a pointcloud from azure kinect with reduced resolution for transportation to rviz2.
+    '''
     def __init__(self):
         super().__init__('point_cloud_only')
         self.get_logger().info("Please check Rviz2 for output /depth_points")
         self.depth_cam_sub = message_filters.Subscriber(self, Image, "/depth/image_raw")
         self.cam_info_sub = message_filters.Subscriber(self, CameraInfo, "/depth/camera_info")
-        self.mask_sub = message_filters.Subscriber(self, DetectionArray, "yolo/detections")
 
         self.point_pub = self.create_publisher(
             PointCloud2,
@@ -25,17 +27,13 @@ class PointCloudOnlyNode(Node):
             10
         )
 
-        self.mask_pub = self.create_publisher(
-            PointCloud2,
-            '/mask_points',
-            10
-        )
-
+        # waiting for depth camera and depth camera information
         ts = message_filters.ApproximateTimeSynchronizer([self.depth_cam_sub, self.cam_info_sub], 10, 0.5)
         ts.registerCallback(self.cloudCallback)
 
         self.bridge = CvBridge()
 
+        # this parameter reduces the resolution
         self.skip = 8
 
         
@@ -47,6 +45,7 @@ class PointCloudOnlyNode(Node):
 
         point_cloud =[]
 
+        # reading 1d pointcloud data and structuring it (x, y, depth)
         for x in range(0, height, self.skip):
             for y in range(0, width, self.skip):
                 depth = data_depth[x][y]
@@ -55,25 +54,22 @@ class PointCloudOnlyNode(Node):
         self.publishCloud(point_cloud, image_msg, self.point_pub)
 
     def depthToPointCloudPos(self, info_msg, x, y, d):
-    
-        # We will use this later
-        # fx = info_msg.k[0]
-        # fy = info_msg.k[4]
-        # cx = info_msg.k[2]
-        # cy = info_msg.k[5]
+
+        # depth camera intrinsics, available in the output console when you run ros2 azure kinect driver. 
         fx = 505.26
         fy = 505.459
-        #cx = 1025.34
-        #cy = 775.605
 
         cx = 331.293
         cy = 330.211
+
+        # unit conversion
         point_y = ((x - cx) * d / fx)/1000
         point_x = ((y - cy) * d / fy)/1000
         point_z = d/1000
         return point_x, point_y, point_z
 
     def publishCloud(self, points, img_msg, publisher):
+        # converting to ROS2 compatible format 
         if len(points) > 0:
             header = img_msg.header
             cloud = point_cloud2.create_cloud_xyz32(header, points)

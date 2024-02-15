@@ -7,6 +7,9 @@ from rclpy.node import Node
 import time
 
 class ImageSubscriberNode(Node):
+    '''
+    captures and saves the image from azure kinect (/rgb/image_raw). Save it to the destination in the below.
+    '''
     def __init__(self):
         super().__init__('image_subscriber_node')
         self.subscription = self.create_subscription(

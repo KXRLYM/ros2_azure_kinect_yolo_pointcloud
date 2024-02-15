@@ -14,26 +14,24 @@ def unpack(quaternion):
     return [x, y, z, w]
 
 class StaticTransformBroadcasterNode(Node):
+    '''
+    This node publishes a transformation from world to the end-effector so that the pointcloud is in the right position in the world coordinate frame. 
+    Please refer to the transform tree in the same directory "frames_2024-02-12_08.47.41.pdf" to ensure that the transform tree is correctly applied.
+    In order to view the tree, you need to run "ros2 run tf2_tools view_frames.py"
+    '''
     def __init__(self, t_path):
         super().__init__('static_transform_broadcaster_node')
+        # We also make use of existing transformation.
+
         self.static_broadcaster = StaticTransformBroadcaster(self)
         self.tf_buffer_rgbtodepth = Buffer()
         self.listener_rgbtodepth = TransformListener(self.tf_buffer_rgbtodepth, self, spin_thread=True)
         self.tf_buffer_depthtobase = Buffer()
         self.listener_depthtobase = TransformListener(self.tf_buffer_depthtobase, self, spin_thread=True)
 
-        # Load the transformation matrix from the npz file
-        loaded_data = np.load(t_path)
-        transform_matrix_basetorgb = loaded_data['arr_0']
-        
-        #q_basetorgb = quaternion_from_matrix(transform_matrix_basetorgb)
-        #t_basetorgb = transform_matrix_basetorgb[:,3]
-        #print("quarternion:", q_basetorgb)
-        #print("Translation:", t_basetorgb)
-
-
-
         try:
+            # look for transformation from rgb camera to depth. Pointcloud is in depth frame, we convert that to rgb frame. This should be aleady there when you run ros2 azure kinect driver
+            # I believe this code is no longer used.
             transform_rgbtodepth = self.tf_buffer_rgbtodepth.lookup_transform(
                 target_frame='depth_camera_link',
                 source_frame='rgb_camera_link',
@@ -51,6 +49,7 @@ class StaticTransformBroadcasterNode(Node):
             self.get_logger().error(f'Error looking up transform: {str(e)}')
 
         try:
+            # Now look for transformation between depth and camera_base
             transform_depthtobase = self.tf_buffer_depthtobase.lookup_transform(
                 target_frame='camera_base',
                 source_frame='depth_camera_link',
@@ -67,30 +66,10 @@ class StaticTransformBroadcasterNode(Node):
         except Exception as e:
             self.get_logger().error(f'Error looking up transform: {str(e)}')
 
-        # q_eetobase * q_basetodepth * q_depthtorgb = q_eetorgb
-        # q_eetobase = q_eetorgb * (q_basetodepth)-1 * (q_depthtorgb)-1
-        # q_eetobase = (q_eetorgb * q_depthtobase) * q_rgbtodepth
-
-        transformation_matrix = np.dot(np.dot(transform_matrix_basetorgb, transform_matrix_depthtobase), transform_matrix_rgbtodepth)
-        translation = translation_from_matrix(transformation_matrix)
-        rotation = quaternion_from_matrix(transformation_matrix)
-        
-        transform_stamped = TransformStamped()
-        transform_stamped.header.stamp = rclpy.time.Time().to_msg()
-        transform_stamped.header.frame_id = 'xarm_gripper_base_link'
-        transform_stamped.child_frame_id = 'camera_base'
-
-        # Set the transformation matrix elements
-        transform_stamped.transform.translation.x = translation[0]
-        transform_stamped.transform.translation.y = translation[1]
-        transform_stamped.transform.translation.z = translation[2]
-        transform_stamped.transform.rotation.x = rotation[0]
-        transform_stamped.transform.rotation.y = rotation[1]
-        transform_stamped.transform.rotation.z = rotation[2]
-        transform_stamped.transform.rotation.w = rotation[3]
-
+        # ros2 uses quaternion instead of a matrix..
         rot2 = quaternion_from_matrix(np.identity(4))
 
+        # hardcoded tranformation from linear direct motor to the base of the robot. Note the hardcoded dimension in z direction
         transform_stamped2 = TransformStamped()
         transform_stamped2.header.stamp = rclpy.time.Time().to_msg()
         transform_stamped2.header.frame_id = 'linear_direct_motor_base'
@@ -103,13 +82,13 @@ class StaticTransformBroadcasterNode(Node):
         transform_stamped2.transform.rotation.z = rot2[2]
         transform_stamped2.transform.rotation.w = rot2[3]
 
-
+        # this is a transformation between camera_base to the end effector "xarm_gripper_base_link"
+        # how i ended up with this value is by trial and error in rviz2. This needs to be replaced by camera calibration
         angle_x = np.pi
         angle_y = np.pi/2
-        #angle_z = -np.pi/2
         rx = [[1,0,0],[0, np.cos(angle_x), -np.sin(angle_x)],[0, np.sin(angle_x), np.cos(angle_x)]]
         ry = [[np.cos(angle_y), 0, np.sin(angle_y)],[0, 1, 0],[-np.sin(angle_y), 0, np.cos(angle_y)]]
-        #rz = [[np.cos(angle_z), np.sin(angle_z), 0],[np.sin(angle_z), np.cos(angle_z), 0],[0,0,1]]
+
         x_rot = np.identity(4)
         x_rot[:3, :3] = rx
         y_rot = np.identity(4)
@@ -136,10 +115,6 @@ class StaticTransformBroadcasterNode(Node):
 
 def main():
     rclpy.init()
-
-    # Replace 'your_npz_file_path.npz' with the actual path to your .npz file
-    t_path = '/home/nam017/ws_calibration/src/HandEyeCalibration-using-OpenCV/FinalTransforms/T_gripper2cam_Method_3.npz'
-
     node = StaticTransformBroadcasterNode(t_path)
     rclpy.spin(node)
     node.destory_node()

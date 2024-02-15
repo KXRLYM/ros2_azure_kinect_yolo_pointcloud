@@ -6,6 +6,9 @@
 class PublishPointCloudNode : public rclcpp::Node {
 public:
   PublishPointCloudNode() : Node("publish_pointcloud_node"), current_cloud_index_(0) {
+    '''
+    No longer used. I used it to check the calibration result of 4 captures of dianosaur..
+    '''
     // Create publishers for four separate topics
     publisher_1_ = create_publisher<sensor_msgs::msg::PointCloud2>("/captured_pointcloud_1", 10);
     publisher_2_ = create_publisher<sensor_msgs::msg::PointCloud2>("/captured_pointcloud_2", 10);
